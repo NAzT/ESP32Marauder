@@ -1,10 +1,15 @@
 #ifndef WiFiScan_h
 #define WiFiScan_h
 
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+//#include <BLEDevice.h>
+//#include <BLEUtils.h>
+//#include <BLEScan.h>
+//#include <BLEAdvertisedDevice.h>
+#include <ArduinoJson.h>
+
+// Testing NimBLE
+#include <NimBLEDevice.h>
+#include <NimBLEAdvertisedDevice.h>
 
 #include <WiFi.h>
 #include <math.h>
@@ -14,33 +19,60 @@
 #include "Display.h"
 #include "SDInterface.h"
 #include "Buffer.h"
+#include "BatteryInterface.h"
+#include "TemperatureInterface.h"
+#include "Assets.h"
 //#include "MenuFunctions.h"
 
 #define bad_list_length 3
 
 #define OTA_UPDATE 100
 #define SHOW_INFO 101
+#define ESP_UPDATE 102
 #define WIFI_SCAN_OFF 0
 #define WIFI_SCAN_PROBE 1
 #define WIFI_SCAN_AP 2
-#define WIFI_SCAN_ST 3
-#define WIFI_SCAN_DEAUTH 4
-#define WIFI_SCAN_ALL 5
-#define WIFI_PACKET_MONITOR 6
-#define WIFI_ATTACK_BEACON_SPAM 7
-#define WIFI_ATTACK_RICK_ROLL 8
-#define BT_SCAN_ALL 9
-#define BT_SCAN_SKIMMERS 10
+#define WIFI_SCAN_PWN 3
+#define WIFI_SCAN_EAPOL 4
+#define WIFI_SCAN_DEAUTH 5
+#define WIFI_SCAN_ALL 6
+#define WIFI_PACKET_MONITOR 7
+#define WIFI_ATTACK_BEACON_SPAM 8
+#define WIFI_ATTACK_RICK_ROLL 9
+#define BT_SCAN_ALL 10
+#define BT_SCAN_SKIMMERS 11
+#define WIFI_SCAN_ESPRESSIF 12
+#define LV_JOIN_WIFI 13
+#define LV_ADD_SSID 14
+#define WIFI_ATTACK_BEACON_LIST 15
+#define WIFI_SCAN_TARGET_AP 16
+#define LV_SELECT_AP 17
+#define WIFI_ATTACK_AUTH 18
+#define WIFI_ATTACK_MIMIC 19
 
-#define GRAPH_REFRESH 50
+#define GRAPH_REFRESH 100
 
 #define MAX_CHANNEL 14
 
 extern Display display_obj;
 extern SDInterface sd_obj;
 extern Buffer buffer_obj;
+extern BatteryInterface battery_obj;
+extern TemperatureInterface temp_obj;
 
 esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, bool en_sys_seq);
+
+struct ssid {
+  String essid;
+  int bssid[6];
+};
+
+struct AccessPoint {
+  String essid;
+  int channel;
+  int bssid[6];
+  bool selected;
+};
 
 class WiFiScan
 {
@@ -64,12 +96,12 @@ class WiFiScan
 
     uint32_t initTime = 0;
     bool run_setup = true;
-    int set_channel = 1;
     int bluetoothScanTime = 5;
     int packets_sent = 0;
     const wifi_promiscuous_filter_t filt = {.filter_mask=WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA};
     BLEScan* pBLEScan;
 
+    //String connected_network = "";
     String alfa = "1234567890qwertyuiopasdfghjkklzxcvbnm QWERTYUIOPASDFGHJKLZXCVBNM_";
 
     char* rick_roll[8] = {
@@ -114,7 +146,44 @@ class WiFiScan
                     /*36*/  0x00
                     };
 
+    /*uint8_t auth_packet[128] = {0xB0, 0x00, 0x3C, 0x00, // Frame Control, Duration
+                                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // Dest
+                                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // Source
+                                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // Dest BSSID
+                                0x00, 0x01, // Sequence number
+                                0x00, 0x00, // Algo
+                                0x01, 0x00, // Auth sequence number
+                                0x00, 0x00, // Status Code
+                                0x7F, 0x08,
+                                0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x40,
+                                0xDD, 0x0B, 0x00, 0x17, 0xF2, 0x0A, 0x00, 0x01, // Say it was Apple
+                                0x04, 0x00, 0x00, 0x00, 0x00, 0xDD, 0x0A, 0x00,
+                                0x10, 0x18, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00,
+                                0x00
+                                };*/
+    uint8_t auth_packet[65] = {0xb0, 0x00, 0x3c, 0x00, 
+                              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 
+                              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 
+                              0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 
+                              0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+                              0x7f, 0x08, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 
+                              0x00, 0x40, 0xdd, 0x0b, 0x00, 0x17, 0xf2, 0x0a, 
+                              0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0xdd, 
+                              0x0a, 0x00, 0x10, 0x18, 0x02, 0x00, 0x00, 0x10, 
+                              0x00, 0x00, 0x00};
+
+    uint8_t prob_req_packet[128] = {0x40, 0x00, 0x00, 0x00, 
+                                  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Destination
+                                  0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // Source
+                                  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Dest
+                                  0x01, 0x00, // Sequence
+                                  0x00, // SSID Parameter
+                                  0x00, // SSID Length
+                                  /* SSID */
+                                  };
+
     void packetMonitorMain(uint32_t currentTime);
+    void eapolMonitorMain(uint32_t currentTime);
     void changeChannel();
     void updateMidway();
     void tftDrawXScalButtons();
@@ -122,28 +191,68 @@ class WiFiScan
     void tftDrawChannelScaleButtons();
     void tftDrawColorKey();
     void tftDrawGraphObjects();
+    void sendProbeAttack(uint32_t currentTime);
     void broadcastRandomSSID(uint32_t currentTime);
+    void broadcastCustomBeacon(uint32_t current_time, ssid custom_ssid);
     void broadcastSetSSID(uint32_t current_time, char* ESSID);
+    void RunAPScan(uint8_t scan_mode, uint16_t color);
     void RunRickRoll(uint8_t scan_mode, uint16_t color);
     void RunBeaconSpam(uint8_t scan_mode, uint16_t color);
+    void RunProbeFlood(uint8_t scan_mode, uint16_t color);
+    void RunMimicFlood(uint8_t scan_mode, uint16_t color);
+    void RunBeaconList(uint8_t scan_mode, uint16_t color);
+    void RunEspressifScan(uint8_t scan_mode, uint16_t color);
+    void RunPwnScan(uint8_t scan_mode, uint16_t color);
     void RunBeaconScan(uint8_t scan_mode, uint16_t color);
     void RunDeauthScan(uint8_t scan_mode, uint16_t color);
+    void RunEapolScan(uint8_t scan_mode, uint16_t color);
     void RunProbeScan(uint8_t scan_mode, uint16_t color);
     void RunPacketMonitor(uint8_t scan_mode, uint16_t color);
     void RunBluetoothScan(uint8_t scan_mode, uint16_t color);
+    void RunLvJoinWiFi(uint8_t scan_mode, uint16_t color);
     static void scanCompleteCB(BLEScanResults scanResults);
 
   public:
     WiFiScan();
 
+    //AccessPoint ap_list;
+
+    //LinkedList<ssid>* ssids;
+
+    int set_channel = 1;
+
+    int old_channel = 0;
+
     bool orient_display = false;
+    bool wifi_initialized = false;
+    bool ble_initialized = false;
 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();    
+    String free_ram = "";
+    String old_free_ram = "";
+    String connected_network = "";
 
+    //lv_obj_t * scr = lv_cont_create(NULL, NULL);
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT(); 
+
+    char* stringToChar(String string);
+    void RunSetup();
+    int clearSSIDs();
+    int clearAPs();
+    bool addSSID(String essid);
+    int generateSSIDs();
+    bool shutdownWiFi();
+    bool shutdownBLE();
+    void joinWiFi(String ssid, String password);
     String getStaMAC();
     String getApMAC();
     String freeRAM();
     void RunInfo();
+    void RunShutdownWiFi();
+    void RunShutdownBLE();
+    void RunGenerateSSIDs();
+    void RunClearSSIDs();
+    void RunClearAPs();
     void channelHop();
     uint8_t currentScanMode = 0;
     void main(uint32_t currentTime);
@@ -151,9 +260,14 @@ class WiFiScan
     void StopScan(uint8_t scan_mode);
     
     static void getMAC(char *addr, uint8_t* data, uint16_t offset);
+    static void espressifSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    static void pwnSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    static void apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void deauthSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void probeSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    static void beaconListSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    static void eapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
 };
 #endif
